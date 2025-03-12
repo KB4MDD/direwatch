@@ -62,6 +62,7 @@ import os
 import aprslib
 import math
 import numpy
+from datetime import datetime
 
 # Config for display baudrate (default max is 24mhz):
 BAUDRATE = 64000000
@@ -139,6 +140,10 @@ elif displaytype == 'ili9486':
        origin=ili9486.Origin.LOWER_RIGHT
    ).begin()
    disp.invert()
+   spi2 = SpiDev(0,1)
+   spi2.mode = 0b00
+   spi2.max_speed_hz = 50000
+
 else:
    ## square adafruit screen 1.3" (240x240), two buttons
    dc_pin = digitalio.DigitalInOut(board.D25)
@@ -287,6 +292,24 @@ def redgreen_thread():                      ## change red or green status indica
 redgreen_thread = threading.Thread(target=redgreen_thread, name="rgwatch")
 redgreen_thread.start()
 
+def input_test():
+    print("here")
+    inp17 = digitalio.DigitalInOut(board.D17)
+    inp17.direction = digitalio.Direction.INPUT 
+    inp17.pull = digitalio.Pull.UP
+    while True:
+        time.sleep(0.1)
+        while( inp17.value == 0):
+            res = spi2.xfer2([0b10010000,0x00,0x00])
+            y = (((res[1] ) << 8) | res[2]) 
+            time.sleep(0.005)
+            res2 = spi2.xfer2([0b11010000,0x00,0x00])
+            x = (((res2[1] ) << 8) | res2[2]) 
+            print("x ", x, " y ",y, "  res ",res, res2)
+ 
+inputtest_thread = threading.Thread(target=input_test, name="inputtest")
+inputtest_thread.start()
+
 
 # Load a TTF font. 
 fontname = "DejaVuSans.ttf"
@@ -317,6 +340,7 @@ font_small = ImageFont.truetype(fontpath_bold, 18 + bump)
 font_big = ImageFont.truetype(fontpath_bold, 24)            # title bar font
 font_huge = ImageFont.truetype(fontpath_bold, 34 + bump)
 font_epic = ImageFont.truetype(fontpath_bold, 38 + bump)
+font_date = ImageFont.truetype(fontpath, 18)
 
 # load symbol chart based on font height
 symbol_chart0x128 = Image.open("aprs-symbols-128-0.png")
@@ -366,6 +390,16 @@ col_count = 0
 
 # tail and block on the log file
 f = subprocess.Popen(['tail','-F','-n','10',logfile], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+
+# get text width
+def get_text_width(text, font):
+    bounding_box = font.getbbox(text)
+    return bounding_box[2] - bounding_box[0]
+
+# get text height
+def get_text_height(text, font):
+    bounding_box = font.getbbox(text)
+    return bounding_box[3] - bounding_box[1]
 
 # single loop, display one station at a time full screen, when using "-o" option on command line
 def single_loop():
@@ -461,7 +495,11 @@ def single_loop():
       draw.text((infoleftmargin, infotopmargin + (infolinespacing * 2)), str(info3), font=font_small, fill="#AAAAAA")
       statustopmargin = symbolimage.height + title_bar_height 
       draw.text((5, statustopmargin), str(info4), font=font_small, fill="#AAAAAA")
-      draw.text((5, height - font_epic.getbbox("J")[3]), call, font=font_epic, fill="#AAAAAA") # text up from bottom edge
+      draw.text((5, height - get_text_height("J", font_epic)), call, font=font_epic, fill="#AAAAAA") # text up from bottom edge
+      
+      time_width = get_text_width(datetime.now().strftime("%m/%d/%Y"), font_date)
+      draw.text((width - time_width, height - get_text_height("J", font_date) * 2.4), datetime.now().strftime("%m/%d/%Y"), font=font_date, fill="#AAAAAA")
+      draw.text((width - time_width, height - get_text_height("J", font_date)), datetime.now().strftime("%H:%M:%S"), font=font_date, fill="#AAAAAA")
   
       with display_lock:
           disp.image(image)

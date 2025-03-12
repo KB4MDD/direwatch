@@ -1,0 +1,17 @@
+Dire Wolf version 1.6
+Includes optional support for:  gpsd hamlib cm108-ptt
+
+Reading config file /home/danny/direwolf.conf
+Audio input device for receive: stdin  (channel 0)
+Audio out device for transmit: null  (channel 0)
+Channel 0: 1200 baud, AFSK 1200 & 2200 Hz, E+, 22050 sample rate.
+Note: PTT not configured for channel 0. (Ignore this if using VOX.)
+Ready to accept AGW client application 0 on port 8000 ...
+Ready to accept KISS TCP client application 0 on port 8001 ...
+
+Now connected to IGate server noam.aprs2.net (44.135.208.225)
+Check server status here http://44.135.208.225:14501
+
+[ig] # aprsc 2.1.19-g730c5c0
+[ig] # logresp KB4MDD verified, server T2BC
+[ig] KB4MDD>APDW16:!X=mNH8kiI&  !Direwatch Rx-only igate
