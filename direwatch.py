@@ -197,32 +197,61 @@ red_line = gpiochip.get_line(26)
 red_line.request(consumer="red", type=gpiod.LINE_REQ_DIR_OUT)
 
 def get_direction(origin, destination):
-   lat1, lon1 = origin 
-   lat2, lon2 = destination
-   dLon = (lon2 - lon1)
-   x = math.cos(math.radians(lat2)) * math.sin(math.radians(dLon))
-   y = math.cos(math.radians(lat1)) * math.sin(math.radians(lat2)) - math.sin(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.cos(math.radians(dLon))
+   """
+   Get the bearing between two points
+
+   Args: 
+      origin: latitude, longitude tuple
+      destination: latitude, longitude tuple
+
+   Returns:
+      string: cardinal direction
+   """
+
+   lat1, lon1 = map(math.radians, origin)
+   lat2, lon2 = map(math.radians, destination)
+
+   delta_Lon = (lon2 - lon1)
+   x = math.cos(lat2) * math.sin(delta_Lon)
+   y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(delta_Lon)
+
    bearing = numpy.arctan2(x,y)
    bearing = numpy.degrees(bearing)
    bearing = (bearing + 360) % 360  # make positive
+
    dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
-   ix = int(round(bearing / (360. / len(dirs))))  
+   ix = int(round(bearing / (360. / len(dirs)))) 
+ 
    return dirs[ix % len(dirs)]
-   #return bearing
 
 def get_distance(origin, destination):
-   lat1, lon1 = origin
-   lat2, lon2 = destination
+   """
+   Get the distance between two points.
+   Uses the halversin formula
+
+   Args: 
+      origin: latitude, longitude tuple
+      destination: latitude, longitude tuple
+
+   Returns:
+      int: miles between the points
+   """
+   #
+   # earth radius
+   #
    # radius = 6371  # km
-   radius = 3959    # miles
-   dlat = math.radians(lat2 - lat1)
-   dlon = math.radians(lon2 - lon1)
-   a = (math.sin(dlat / 2) * math.sin(dlat / 2) +
-        math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-        math.sin(dlon / 2) * math.sin(dlon / 2))
+   radius = 3958.8    # miles
+
+   lat1, lon1 = map(math.radians, origin)
+   lat2, lon2 = map(math.radians, destination)
+
+   dlat = lat2 - lat1
+   dlon = lon2 - lon1
+
+   a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-   d = radius * c
-   return d
+  
+   return radius * c
 
 def signal_handler(signal, frame):
    print("Got ", signal, " exiting.")
