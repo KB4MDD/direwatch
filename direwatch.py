@@ -234,7 +234,7 @@ def get_distance(origin, destination):
       destination: latitude, longitude tuple
 
    Returns:
-      int: miles between the points
+      string: distance in miles or yards
    """
    #
    # earth radius
@@ -250,8 +250,16 @@ def get_distance(origin, destination):
 
    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+   dist = radius * c
+
+   res = str(round(dist)) + " mi "
+   #
+   # if the distance is less than 1 mile, convert to yards
+   #
+   if dist < 1:
+      res = str(round(dist * 1760)) + " yd "
   
-   return radius * c
+   return res
 
 def signal_handler(signal, frame):
    print("Got ", signal, " exiting.")
@@ -481,9 +489,8 @@ def single_loop():
             lat2 = packet['latitude']
             lon2 = packet['longitude']
             if lat1:
-               distance = get_distance((lat1,lon1),(lat2,lon2))
-               direction = get_direction((lat1,lon1),(lat2,lon2))   
-               info1 = str(round(distance)) + "mi " + direction
+               direction = get_direction((lat1, lon1), (lat2, lon2))   
+               info1 = get_distance((lat1, lon1), (lat2, lon2)) + direction
             else:
                info1 = ""
             info2 = round(packet['weather']['temperature'])
@@ -495,19 +502,20 @@ def single_loop():
             lat2 = packet['latitude']
             lon2 = packet['longitude']
             if lat1:
-               distance = get_distance((lat1,lon1),(lat2,lon2))
-               direction = get_direction((lat1,lon1),(lat2,lon2))
-               info1 = str(round(distance)) + "mi " + direction
+               direction = get_direction((lat1, lon1), (lat2, lon2))
+               info1 = get_distance((lat1, lon1), (lat2, lon2)) + direction
             else:
                info1 = ""
          elif 'status' in packet:                                       # status packet
             info4 = re.sub('^[^0-9a-zA-Z]+', '', packet['status'])      # get rid of leading punctuation
+
       except Exception as e:
          print("Malformed/missing data: ", str(e), ": ", packetstring)
 
       offset = ord(symbol) - 33
       row = offset // 16 
       col = offset % 16 
+
       draw.rectangle((0, title_bar_height, width, height), fill="#000000")  # erase most of screen
       crop_area = (col*symbol_dimension, row*symbol_dimension, col*symbol_dimension+symbol_dimension, row*symbol_dimension+symbol_dimension)
       if symbol_table == '/':
@@ -518,6 +526,7 @@ def single_loop():
       if height >= 320:
          symbolimage = symbolimage.resize((180, 180), Image.LANCZOS)
       image.paste(symbolimage, (0, title_bar_height), symbolimage)
+
       infoleftmargin = symbolimage.width + padding
       draw.text((infoleftmargin, infotopmargin),                         str(info1), font=font_small, fill="#AAAAAA")
       draw.text((infoleftmargin, infotopmargin + infolinespacing),       str(info2), font=font_small, fill="#AAAAAA")
