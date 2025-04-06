@@ -477,7 +477,6 @@ font_date = ImageFont.truetype(fontpath, 18)
 # load symbol chart based on font height
 symbol_chart0x128 = Image.open("aprs-symbols-128-0.png")
 symbol_chart1x128 = Image.open("aprs-symbols-128-1.png")
-symbol_dimension = 128
 
 # Draw a black filled box to clear the image.
 draw.rectangle((0, 0, width, height), outline=0, fill="#000000")
@@ -571,6 +570,7 @@ def process_packets():
         #
         infotopmargin = title_bar_height + (padding * 4)
         infolinespacing = font_small.getbbox("ABCJQ")[3] + padding
+        symbol_dimension = 128
 
     else:
         #
