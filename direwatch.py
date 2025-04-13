@@ -196,6 +196,16 @@ else:  # sane default
 image = Image.new("RGB", (width, height))
 draw = ImageDraw.Draw(image)
 
+image_col = Image.new("RGB", (width, height))
+draw_col = ImageDraw.Draw(image_col)
+
+image_current = image
+draw_current = draw_col
+if args["one"]:
+    image_current = image_col
+    draw_current = draw_col
+
+
 # define some constants to help with graphics layout
 padding = 4
 title_bar_height = 34
@@ -301,9 +311,9 @@ def get_distance(origin, destination):
 
 def signal_handler(signal, frame):
     print("Got ", signal, " exiting.")
-    draw.rectangle((0, 0, width, height), outline=0, fill=(30, 30, 30))
+    draw_current.rectangle((0, 0, width, height), outline=0, fill=(30, 30, 30))
     with display_lock:
-        disp.image(image)
+        disp.image(image_current)
     red_line.release()
     blue_line.release()
     os._exit(0)
@@ -326,21 +336,21 @@ def bluetooth_connection_poll_thread():  # FIXME convert to libgpiod, not gpioze
                 bt_status = 1
                 bticon = Image.open("bt.small.on.png")
                 blue_line.set_value(1)
-                image.paste(
+                image_current.paste(
                     bticon, (width - title_bar_height * 3 + 12, padding + 2), bticon
                 )
                 with display_lock:
-                    disp.image(image)
+                    disp.image(image_current)
         else:
             if bt_status == 1:
                 bt_status = 0
                 bticon = Image.open("bt.small.off.png")
                 blue_line.set_value(0)
-                image.paste(
+                image_current.paste(
                     bticon, (width - title_bar_height * 3 + 12, padding + 2), bticon
                 )
                 with display_lock:
-                    disp.image(image)
+                    disp.image(image_current)
         time.sleep(2)
 
 
@@ -362,7 +372,7 @@ def redgreen_thread():  ## change red or green status indicators and red diode
         if search is not None:
             status = search.group(1)
             if status == "DCD 0 = 1":
-                draw.ellipse(
+                draw_current.ellipse(
                     (
                         width - title_bar_height,
                         padding,
@@ -372,7 +382,7 @@ def redgreen_thread():  ## change red or green status indicators and red diode
                     fill=(0, 200, 0, 255),
                 )
             elif status == "DCD 0 = 0":
-                draw.ellipse(
+                draw_current.ellipse(
                     (
                         width - title_bar_height,
                         padding,
@@ -382,7 +392,7 @@ def redgreen_thread():  ## change red or green status indicators and red diode
                     fill=(0, 80, 0, 255),
                 )
             elif status == "PTT 0 = 1":
-                draw.ellipse(
+                draw_current.ellipse(
                     (
                         width - title_bar_height * 2,
                         padding,
@@ -424,9 +434,11 @@ def input_test():
         time.sleep(0.1)
         while inp17.value == 0:
             res = spi2.xfer2([0b10010000, 0x00, 0x00])
+            print("y",res[0], res[1], res[2])
             y = ((res[1]) << 8) | res[2]
             time.sleep(0.005)
             res2 = spi2.xfer2([0b11010000, 0x00, 0x00])
+            print("x",res2[0], res2[1], res2[2])
             x = ((res2[1]) << 8) | res2[2]
             print("x ", x, " y ", y, "  res ", res, res2)
 
@@ -479,28 +491,28 @@ symbol_chart0x128 = Image.open("aprs-symbols-128-0.png")
 symbol_chart1x128 = Image.open("aprs-symbols-128-1.png")
 
 # Draw a black filled box to clear the image.
-draw.rectangle((0, 0, width, height), outline=0, fill="#000000")
+draw_current.rectangle((0, 0, width, height), outline=0, fill="#000000")
 
 # Draw our logo
 h = font.getbbox(title_text)[3]
-draw.text((padding * 3, height // 2 - h), title_text, font=font_huge, fill="#999999")
+draw_current.text((padding * 3, height // 2 - h), title_text, font=font_huge, fill="#999999")
 with display_lock:
-    disp.image(image)
+    disp.image(image_current)
 time.sleep(1)
 
 # erase the screen
-draw.rectangle((0, 0, width, height), outline=(0, 0, 0), fill="#000000")
+draw_current.rectangle((0, 0, width, height), outline=(0, 0, 0), fill="#000000")
 
 # draw the header bar
-draw.rectangle((0, 0, width, title_bar_height), fill=(30, 30, 30))
-draw.text((padding, padding), title_text, font=font_big, fill="#999999")
+draw_current.rectangle((0, 0, width, title_bar_height), fill=(30, 30, 30))
+draw_current.text((padding, padding), title_text, font=font_big, fill="#999999")
 
 # draw the bluetooth icon
 bticon = Image.open("bt.small.off.png")
-image.paste(bticon, (width - title_bar_height * 3 + 12, padding + 2), bticon)
+image_current.paste(bticon, (width - title_bar_height * 3 + 12, padding + 2), bticon)
 
 # draw Green LED
-draw.ellipse(
+draw_current.ellipse(
     (
         width - title_bar_height,
         padding,
@@ -511,7 +523,7 @@ draw.ellipse(
 )
 
 # draw Red LED
-draw.ellipse(
+draw_current.ellipse(
     (
         width - title_bar_height * 2,
         padding,
@@ -522,13 +534,14 @@ draw.ellipse(
 )
 
 with display_lock:
-    disp.image(image)
+    disp.image(image_current)
     if savefile:
-        image.save(savefile, compress_level=1)
+        image_current.save(savefile, compress_level=1)
 
-# fire up green/red led threads
-# watch_threadG.start()
-# watch_threadR.start()
+if image_current is image:
+    image_col = image_current.copy
+else:
+    image = image_current.copy
 
 # setup geometry defaults
 call = "null"
@@ -768,12 +781,6 @@ def process_packets():
                 fill="#AAAAAA",
             )
 
-            with display_lock:
-                disp.image(image)
-                if savefile:
-                    image.save(savefile, compress_level=1)
-
-            time.sleep(1)
 
         else:
             # list, 2 columns
@@ -783,23 +790,24 @@ def process_packets():
 
             if call == lastcall:  # blink duplicates
                 time.sleep(0.5)
-                draw.text(
-                    (x + symbol_dimension + (symbol_dimension // 8), y),
-                    call,
-                    font=font,
-                    fill="#000000",
-                )  # start text after symbol, relative padding
-                with display_lock:
-                    disp.image(image)
-                time.sleep(0.1)
-                draw.text(
-                    (x + symbol_dimension + (symbol_dimension // 8), y),
-                    call,
-                    font=font,
-                    fill="#AAAAAA",
-                )  # start text after symbol, relative padding
-                with display_lock:
-                    disp.image(image)
+                # draw_col.text(
+                #     (x + symbol_dimension + (symbol_dimension // 8), y),
+                #     call,
+                #     font=font,
+                #     fill="#000000",
+                # )  # start text after symbol, relative padding
+                # with display_lock:
+                #     disp.image(image)
+                # time.sleep(0.1)
+
+                # draw_col.text(
+                #     (x + symbol_dimension + (symbol_dimension // 8), y),
+                #     call,
+                #     font=font,
+                #     fill="#AAAAAA",
+                # )  # start text after symbol, relative padding
+                # with display_lock:
+                #     disp.image(image)
             else:
                 y += line_height
                 if line_count == max_lines:  # about to write off bottom edge of screen
@@ -811,7 +819,7 @@ def process_packets():
                 if col_count == max_cols:  # about to write off right edge of screen
                     x = padding
                     y = padding + title_bar_height
-                    draw.rectangle(
+                    draw_col.rectangle(
                         (0, title_bar_height + 1, width, height),
                         outline=0,
                         fill="#000000",
@@ -831,18 +839,20 @@ def process_packets():
                 else:
                     symbolimage = symbol_chart1x128.crop(crop_area)
 
-                image.paste(symbolimage, (x, y), symbolimage)
-                draw.text(
+                image_col.paste(symbolimage, (x, y), symbolimage)
+                draw_col.text(
                     (x + symbol_dimension + (symbol_dimension // 8), y),
                     call,
                     font=font,
                     fill="#AAAAAA",
                 )  # start text after symbol, relative padding
                 line_count += 1
-                with display_lock:
-                    disp.image(image)
-                    if savefile:
-                        image.save(savefile, compress_level=1)
+
+        with display_lock:
+            disp.image(image_current)
+            if savefile:
+                image_current.save(savefile, compress_level=1)
+        time.sleep(1)
 
 
 if __name__ == "__main__":
