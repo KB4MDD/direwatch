@@ -193,15 +193,15 @@ else:  # sane default
 
 # ili9486 must be in RGB format, no Alpha channel
 # image = Image.new("RGBA", (width, height))
-image = Image.new("RGB", (width, height))
-draw = ImageDraw.Draw(image)
+image_one = Image.new("RGB", (width, height))
+draw_one = ImageDraw.Draw(image_one)
 
 image_col = Image.new("RGB", (width, height))
 draw_col = ImageDraw.Draw(image_col)
 
-image_current = image
-draw_current = draw_col
-if args["one"]:
+image_current = image_one
+draw_current = draw_one
+if not args["one"]:
     image_current = image_col
     draw_current = draw_col
 
@@ -404,7 +404,7 @@ def redgreen_thread():  ## change red or green status indicators and red diode
                 # red_led.on()
                 red_line.set_value(1)
             elif status == "PTT 0 = 0":
-                draw.ellipse(
+                draw_one.ellipse(
                     (
                         width - title_bar_height * 2,
                         padding,
@@ -418,33 +418,53 @@ def redgreen_thread():  ## change red or green status indicators and red diode
             else:
                 print("Unknown DCD/PTT event\n")
             with display_lock:
-                disp.image(image)
+                disp.image(image_current)
 
 
 redgreen_thread = threading.Thread(target=redgreen_thread, name="rgwatch")
 redgreen_thread.start()
 
-
-def input_test():
-    print("here")
+def input_press():
+    global image_current, draw_current, image_one, draw_one, image_col, draw_col
     inp17 = digitalio.DigitalInOut(board.D17)
     inp17.direction = digitalio.Direction.INPUT
     inp17.pull = digitalio.Pull.UP
+
+    inpState = 1
+
     while True:
         time.sleep(0.1)
-        while inp17.value == 0:
-            res = spi2.xfer2([0b10010000, 0x00, 0x00])
-            print("y",res[0], res[1], res[2])
-            y = ((res[1]) << 8) | res[2]
-            time.sleep(0.005)
-            res2 = spi2.xfer2([0b11010000, 0x00, 0x00])
-            print("x",res2[0], res2[1], res2[2])
-            x = ((res2[1]) << 8) | res2[2]
-            print("x ", x, " y ", y, "  res ", res, res2)
+
+        if inp17.value == 0 and inpState == 1:
+            inpState = 0
+            if image_current is image_one:
+                print("switch col")
+                image_current = image_col
+                draw_current = draw_col
+            else:
+                print("switch one")
+                image_current = image_one
+                draw_current = draw_one
+
+            with display_lock:
+                disp.image(image_current)
+
+        else:
+            inpState = 1
+
+        # while inp17.value == 0:
+        #     res = spi2.xfer2([0b10010000, 0x00, 0x00])
+        #     print("y",res[0], res[1], res[2])
+        #     y = ((res[1]) << 8) | res[2]
+        #     time.sleep(0.005)
+        #     res2 = spi2.xfer2([0b11010000, 0x00, 0x00])
+        #     print("x",res2[0], res2[1], res2[2])
+        #     x = ((res2[1]) << 8) | res2[2]
+        #     print("x ", x, " y ", y, "  res ", res, res2)
 
 
-inputtest_thread = threading.Thread(target=input_test, name="inputtest")
-inputtest_thread.start()
+inputpress_thread = threading.Thread(target=input_press, name="inputpress")
+inputpress_thread.start()
 
 
 # Load a TTF font.
@@ -487,8 +507,11 @@ font_epic = ImageFont.truetype(fontpath_bold, 38 + bump)
 font_date = ImageFont.truetype(fontpath, 18)
 
 # load symbol chart based on font height
-symbol_chart0x128 = Image.open("aprs-symbols-128-0.png")
-symbol_chart1x128 = Image.open("aprs-symbols-128-1.png")
+symbol_chart0x128_one = Image.open("aprs-symbols-128-0.png")
+symbol_chart1x128_one = Image.open("aprs-symbols-128-1.png")
+
+symbol_chart0x128_col = symbol_chart0x128_one.copy()
+symbol_chart1x128_col = symbol_chart1x128_one.copy()
 
 # Draw a black filled box to clear the image.
 draw_current.rectangle((0, 0, width, height), outline=0, fill="#000000")
@@ -538,10 +561,12 @@ with display_lock:
     if savefile:
         image_current.save(savefile, compress_level=1)
 
-if image_current is image:
-    image_col = image_current.copy
+if image_current is image_one:
+    image_col = image_current.copy()
+    draw_col = ImageDraw.Draw(image_col)
 else:
-    image = image_current.copy
+    image_one = image_current.copy()
+    draw_one = ImageDraw.Draw(image_one)
 
 # setup geometry defaults
 call = "null"
@@ -566,6 +591,7 @@ def get_text_height(text, font):
 # main processing loop
 #
 def process_packets():
+    global image_current, draw_current, image_one, draw_one, image_col, draw_col
     #
     # tail and block on the log file
     #
@@ -575,53 +601,49 @@ def process_packets():
         stderr=subprocess.PIPE,
     )
 
+    #
+    # settings for one call screen
+    #
+    infotopmargin = title_bar_height + (padding * 4)
+    infolinespacing = font_small.getbbox("ABCJQ")[3] + padding
+    symbol_dimension_one = 128
     call = "null"
 
-    if args["one"]:
-        #
-        # display one packet at a time on the screen
-        #
-        infotopmargin = title_bar_height + (padding * 4)
-        infolinespacing = font_small.getbbox("ABCJQ")[3] + padding
-        symbol_dimension = 128
+    #
+    # settings for displaying packets in two columns
+    #
 
-    else:
-        #
-        # display packets in two columns
-        #
-
-        # scale symbols based on font height
-        fontvertical = font.getbbox("ABCJQ")[
-            3
-        ]  # tallest callsign, with dangling J/Q tails
-        symbol_chart0x128.thumbnail(
-            (
-                (fontvertical + fontvertical // 8) * 16,
-                (fontvertical + fontvertical // 8) * 6,
-            )
-        )  # nudge larger than font, into space between lines
-        symbol_chart1x128.thumbnail(
-            (
-                (fontvertical + fontvertical // 8) * 16,
-                (fontvertical + fontvertical // 8) * 6,
-            )
-        )  # nudge larger than font, into space between lines
-        symbol_dimension = symbol_chart0x128.width // 16
-        max_line_width = (
-            font.getbbox("KN6MUC-15")[2] + symbol_dimension + (symbol_dimension // 8)
-        )  # longest callsign i can think of in pixels, plus symbo width + space
-        max_cols = width // max_line_width
-
-        # position cursor in -1 slot, as the first thing the loop does is increment slot
-        y = padding + title_bar_height - font.getbbox("ABCJQ")[3]
-        x = padding
-        line_height = (
-            font.getbbox("ABCJQ")[3] - 1
-        )  # tallest callsign, with dangling J/Q tails
-        max_lines = (height - title_bar_height - padding) // line_height
-        max_cols = width // max_line_width
-        line_count = 0
-        col_count = 0
+    # scale symbols based on font height
+    fontvertical = font.getbbox("ABCJQ")[
+        3
+    ]  # tallest callsign, with dangling J/Q tails
+    symbol_chart0x128_col.thumbnail(
+        (
+            (fontvertical + fontvertical // 8) * 16,
+            (fontvertical + fontvertical // 8) * 6,
+        )
+    )  # nudge larger than font, into space between lines
+    symbol_chart1x128_col.thumbnail(
+        (
+            (fontvertical + fontvertical // 8) * 16,
+            (fontvertical + fontvertical // 8) * 6,
+        )
+    )  # nudge larger than font, into space between lines
+    symbol_dimension_col = symbol_chart0x128_col.width // 16
+    max_line_width = (
+        font.getbbox("KN6MUC-15")[2] + symbol_dimension_col + (symbol_dimension_col // 8)
+    )  # longest callsign i can think of in pixels, plus symbo width + space
+    max_cols = width // max_line_width
+         # position cursor in -1 slot, as the first thing the loop does is increment slot
+    y = padding + title_bar_height - font.getbbox("ABCJQ")[3]
+    x = padding
+    line_height = (
+        font.getbbox("ABCJQ")[3] - 1
+    )  # tallest callsign, with dangling J/Q tails
+    max_lines = (height - title_bar_height - padding) // line_height
+    max_cols = width // max_line_width
+    line_count = 0
+    col_count = 0
 
     # we try to get callsign, symbol and four relevant info lines from every packet
     while True:
@@ -667,187 +689,187 @@ def process_packets():
             else:
                 continue
 
-        if args["one"]:
-            # one packet per screen
-            info1 = info2 = info3 = info4 = ""  # defaults
-            try:
+        # one packet per screen
+        info1 = info2 = info3 = info4 = ""  # defaults
+        try:
 
-                if not supported_packet:
-                    info1 = info2 = info3 = info4 = ""
+            if not supported_packet:
+                info1 = info2 = info3 = info4 = ""
 
-                elif (
-                    "weather" in packet
-                ):  # weather (often contained in compressed/uncompressed type packets)
-                    lat2 = packet["latitude"]
-                    lon2 = packet["longitude"]
-                    if lat1:
-                        direction = get_direction((lat1, lon1), (lat2, lon2))
-                        info1 = get_distance((lat1, lon1), (lat2, lon2)) + direction
-                    else:
-                        info1 = ""
-                    info2 = round(packet["weather"]["temperature"])
-                    info2 = str(round(int(info2) * 1.8 + 32)) + "F"
-                    info3 = ""
-                    info4 = str(packet["comment"])
+            elif (
+                "weather" in packet
+            ):  # weather (often contained in compressed/uncompressed type packets)
+                lat2 = packet["latitude"]
+                lon2 = packet["longitude"]
+                if lat1:
+                    direction = get_direction((lat1, lon1), (lat2, lon2))
+                    info1 = get_distance((lat1, lon1), (lat2, lon2)) + direction
+                else:
+                    info1 = ""
+                info2 = round(packet["weather"]["temperature"])
+                info2 = str(round(int(info2) * 1.8 + 32)) + "F"
+                info3 = ""
+                info4 = str(packet["comment"])
 
-                elif (
-                    packet["format"] == "mic-e"
-                    or packet["format"] == "compressed"
-                    or packet["format"] == "uncompressed"
-                    or packet["format"] == "object"
-                ):
-                    info4 = re.sub(
-                        "^[^0-9a-zA-Z]*", "", packet["comment"]
-                    )  # get rid of leading punctuation
-                    lat2 = packet["latitude"]
-                    lon2 = packet["longitude"]
-                    if lat1:
-                        direction = get_direction((lat1, lon1), (lat2, lon2))
-                        info1 = get_distance((lat1, lon1), (lat2, lon2)) + direction
-                    else:
-                        info1 = ""
+            elif (
+                packet["format"] == "mic-e"
+                or packet["format"] == "compressed"
+                or packet["format"] == "uncompressed"
+                or packet["format"] == "object"
+            ):
+                info4 = re.sub(
+                    "^[^0-9a-zA-Z]*", "", packet["comment"]
+                )  # get rid of leading punctuation
+                lat2 = packet["latitude"]
+                lon2 = packet["longitude"]
+                if lat1:
+                    direction = get_direction((lat1, lon1), (lat2, lon2))
+                    info1 = get_distance((lat1, lon1), (lat2, lon2)) + direction
+                else:
+                    info1 = ""
 
-                elif "status" in packet:  # status packet
-                    info4 = re.sub(
-                        "^[^0-9a-zA-Z]+", "", packet["status"]
-                    )  # get rid of leading punctuation
+            elif "status" in packet:  # status packet
+                info4 = re.sub(
+                    "^[^0-9a-zA-Z]+", "", packet["status"]
+                )  # get rid of leading punctuation
 
-            except Exception as e:
-                print("Malformed/missing data: ", str(e), ": ", packetstring)
+        except Exception as e:
+            print("Malformed/missing data: ", str(e), ": ", packetstring)
 
-            offset = ord(symbol) - 33
-            row = offset // 16
-            col = offset % 16
+        offset = ord(symbol) - 33
+        row = offset // 16
+        col = offset % 16
 
-            draw.rectangle(
-                (0, title_bar_height, width, height), fill="#000000"
-            )  # erase most of screen
+        draw_one.rectangle(
+            (0, title_bar_height, width, height), fill="#000000"
+        )  # erase most of screen
+        crop_area = (
+            col * symbol_dimension_one,
+            row * symbol_dimension_one,
+            col * symbol_dimension_one + symbol_dimension_one,
+            row * symbol_dimension_one + symbol_dimension_one,
+        )
+        if symbol_table == "/":
+            symbolimage = symbol_chart0x128_one.crop(crop_area)
+        else:
+            symbolimage = symbol_chart1x128_one.crop(crop_area)
+
+        # symbolimage = symbolimage.resize((height // 2, height // 2), Image.NEAREST)
+        if height >= 320:
+            symbolimage = symbolimage.resize((180, 180), Image.LANCZOS)
+
+        image_one.paste(symbolimage, (0, title_bar_height), symbolimage)
+
+        infoleftmargin = symbolimage.width + padding
+        draw_one.text(
+            (infoleftmargin, infotopmargin),
+            str(info1),
+            font=font_small,
+            fill="#AAAAAA",
+        )
+        draw_one.text(
+            (infoleftmargin, infotopmargin + infolinespacing),
+            str(info2),
+            font=font_small,
+            fill="#AAAAAA",
+        )
+        draw_one.text(
+            (infoleftmargin, infotopmargin + (infolinespacing * 2)),
+            str(info3),
+            font=font_small,
+            fill="#AAAAAA",
+        )
+        statustopmargin = symbolimage.height + title_bar_height
+        draw_one.text((5, statustopmargin), str(info4), font=font_small, fill="#AAAAAA")
+        draw_one.text(
+            (5, height - get_text_height("J", font_epic)),
+            call,
+            font=font_epic,
+            fill="#AAAAAA",
+        )  # text up from bottom edge
+
+        time_width = get_text_width(datetime.now().strftime("%m/%d/%Y"), font_date)
+        draw_one.text(
+            (width - time_width, height - get_text_height("J", font_date) * 2.4),
+            datetime.now().strftime("%m/%d/%Y"),
+            font=font_date,
+            fill="#AAAAAA",
+        )
+        draw_one.text(
+            (width - time_width, height - get_text_height("J", font_date)),
+            datetime.now().strftime("%H:%M:%S"),
+            font=font_date,
+            fill="#AAAAAA",
+        )
+
+
+        # list, 2 columns
+        offset = ord(symbol) - 33
+        row = offset // 16
+        col = offset % 16
+
+        if call == lastcall:  # blink duplicates
+            time.sleep(0.5)
+            # draw_col.text(
+            #     (x + symbol_dimension_col + (symbol_dimension_col // 8), y),
+            #     call,
+            #     font=font,
+            #     fill="#000000",
+            # )  # start text after symbol, relative padding
+            # with display_lock:
+            #     disp.image(image)
+            # time.sleep(0.1)
+
+            # draw_col.text(
+            #     (x + symbol_dimension_col + (symbol_dimension_col // 8), y),
+            #     call,
+            #     font=font,
+            #     fill="#AAAAAA",
+            # )  # start text after symbol, relative padding
+            # with display_lock:
+            #     disp.image(image)
+        else:
+            y += line_height
+            if line_count == max_lines:  # about to write off bottom edge of screen
+                col_count += 1
+                x = col_count * max_line_width
+                y = padding + title_bar_height
+                line_count = 0
+
+            if col_count == max_cols:  # about to write off right edge of screen
+                x = padding
+                y = padding + title_bar_height
+                draw_col.rectangle(
+                    (0, title_bar_height + 1, width, height),
+                    outline=0,
+                    fill="#000000",
+                )  # erase lines
+                line_count = 0
+                col_count = 0
+                time.sleep(2.0)
+
             crop_area = (
-                col * symbol_dimension,
-                row * symbol_dimension,
-                col * symbol_dimension + symbol_dimension,
-                row * symbol_dimension + symbol_dimension,
+                col * symbol_dimension_col,
+                row * symbol_dimension_col,
+                col * symbol_dimension_col + symbol_dimension_col,
+                row * symbol_dimension_col + symbol_dimension_col,
             )
             if symbol_table == "/":
-                symbolimage = symbol_chart0x128.crop(crop_area)
+                symbolimage = symbol_chart0x128_col.crop(crop_area)
             else:
-                symbolimage = symbol_chart1x128.crop(crop_area)
+                symbolimage = symbol_chart1x128_col.crop(crop_area)
 
-            # symbolimage = symbolimage.resize((height // 2, height // 2), Image.NEAREST)
-            if height >= 320:
-                symbolimage = symbolimage.resize((180, 180), Image.LANCZOS)
-
-            image.paste(symbolimage, (0, title_bar_height), symbolimage)
-
-            infoleftmargin = symbolimage.width + padding
-            draw.text(
-                (infoleftmargin, infotopmargin),
-                str(info1),
-                font=font_small,
-                fill="#AAAAAA",
-            )
-            draw.text(
-                (infoleftmargin, infotopmargin + infolinespacing),
-                str(info2),
-                font=font_small,
-                fill="#AAAAAA",
-            )
-            draw.text(
-                (infoleftmargin, infotopmargin + (infolinespacing * 2)),
-                str(info3),
-                font=font_small,
-                fill="#AAAAAA",
-            )
-            statustopmargin = symbolimage.height + title_bar_height
-            draw.text((5, statustopmargin), str(info4), font=font_small, fill="#AAAAAA")
-            draw.text(
-                (5, height - get_text_height("J", font_epic)),
+            image_col.paste(symbolimage, (x, y), symbolimage)
+            draw_col.text(
+                (x + symbol_dimension_col + (symbol_dimension_col // 8), y),
                 call,
-                font=font_epic,
+                font=font,
                 fill="#AAAAAA",
-            )  # text up from bottom edge
-
-            time_width = get_text_width(datetime.now().strftime("%m/%d/%Y"), font_date)
-            draw.text(
-                (width - time_width, height - get_text_height("J", font_date) * 2.4),
-                datetime.now().strftime("%m/%d/%Y"),
-                font=font_date,
-                fill="#AAAAAA",
-            )
-            draw.text(
-                (width - time_width, height - get_text_height("J", font_date)),
-                datetime.now().strftime("%H:%M:%S"),
-                font=font_date,
-                fill="#AAAAAA",
-            )
-
-
-        else:
-            # list, 2 columns
-            offset = ord(symbol) - 33
-            row = offset // 16
-            col = offset % 16
-
-            if call == lastcall:  # blink duplicates
-                time.sleep(0.5)
-                # draw_col.text(
-                #     (x + symbol_dimension + (symbol_dimension // 8), y),
-                #     call,
-                #     font=font,
-                #     fill="#000000",
-                # )  # start text after symbol, relative padding
-                # with display_lock:
-                #     disp.image(image)
-                # time.sleep(0.1)
-
-                # draw_col.text(
-                #     (x + symbol_dimension + (symbol_dimension // 8), y),
-                #     call,
-                #     font=font,
-                #     fill="#AAAAAA",
-                # )  # start text after symbol, relative padding
-                # with display_lock:
-                #     disp.image(image)
-            else:
-                y += line_height
-                if line_count == max_lines:  # about to write off bottom edge of screen
-                    col_count += 1
-                    x = col_count * max_line_width
-                    y = padding + title_bar_height
-                    line_count = 0
-
-                if col_count == max_cols:  # about to write off right edge of screen
-                    x = padding
-                    y = padding + title_bar_height
-                    draw_col.rectangle(
-                        (0, title_bar_height + 1, width, height),
-                        outline=0,
-                        fill="#000000",
-                    )  # erase lines
-                    line_count = 0
-                    col_count = 0
-                    time.sleep(2.0)
-
-                crop_area = (
-                    col * symbol_dimension,
-                    row * symbol_dimension,
-                    col * symbol_dimension + symbol_dimension,
-                    row * symbol_dimension + symbol_dimension,
-                )
-                if symbol_table == "/":
-                    symbolimage = symbol_chart0x128.crop(crop_area)
-                else:
-                    symbolimage = symbol_chart1x128.crop(crop_area)
-
-                image_col.paste(symbolimage, (x, y), symbolimage)
-                draw_col.text(
-                    (x + symbol_dimension + (symbol_dimension // 8), y),
-                    call,
-                    font=font,
-                    fill="#AAAAAA",
-                )  # start text after symbol, relative padding
-                line_count += 1
-
+            )  # start text after symbol, relative padding
+            line_count += 1
+        #
+        #display the current image
+        #
         with display_lock:
             disp.image(image_current)
             if savefile:
